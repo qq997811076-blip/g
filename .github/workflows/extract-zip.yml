@@ -1,0 +1,26 @@
+
+name: Extract ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract source and workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="gxg-fe166845a561b99e768215f140621981828cbb56.zip"
+          test -s "$ZIP"
+          mkdir -p /tmp/gxg-extract
+          unzip -o "$ZIP" -d /tmp/gxg-extract
+          find /tmp/gxg-extract -maxdepth 3 -type f | head -80
+          echo "ZIP 已解压到临时目录，请检查文件结构。"
