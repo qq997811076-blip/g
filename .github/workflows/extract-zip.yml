@@ -5,14 +5,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   extract:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          persist-credentials: true
 
       - name: Extract ZIP to repository root
         shell: bash
@@ -26,10 +30,10 @@ jobs:
           unzip -oq "$ZIP" -d /tmp/gxg-extract
 
           SRC="/tmp/gxg-extract"
-          DIRS="$(find "$SRC" -mindepth 1 -maxdepth 1 -type d)"
+          mapfile -t DIRS < <(find "$SRC" -mindepth 1 -maxdepth 1 -type d)
 
-          if [ "$(printf '%s\n' "$DIRS" | wc -l)" -eq 1 ] && [ -d "$DIRS" ]; then
-            SRC="$DIRS"
+          if [ "${#DIRS[@]}" -eq 1 ]; then
+            SRC="${DIRS[0]}"
           fi
 
           cp -a "$SRC"/. .
@@ -37,11 +41,12 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add -A
 
           if ! git diff --cached --quiet; then
             git commit -m "Extract GXG source and workflow"
-            git push
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           else
             echo "没有检测到需要提交的更改"
           fi
