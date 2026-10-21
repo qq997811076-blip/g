@@ -14,13 +14,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract source and workflow
+      - name: Extract ZIP to repository root
         shell: bash
         run: |
           set -euo pipefail
+
           ZIP="gxg-fe166845a561b99e768215f140621981828cbb56.zip"
           test -s "$ZIP"
+
           mkdir -p /tmp/gxg-extract
-          unzip -o "$ZIP" -d /tmp/gxg-extract
-          find /tmp/gxg-extract -maxdepth 3 -type f | head -80
-          echo "ZIP 已解压到临时目录，请检查文件结构。"
+          unzip -oq "$ZIP" -d /tmp/gxg-extract
+
+          SRC="/tmp/gxg-extract"
+          DIRS="$(find "$SRC" -mindepth 1 -maxdepth 1 -type d)"
+
+          if [ "$(printf '%s\n' "$DIRS" | wc -l)" -eq 1 ] && [ -d "$DIRS" ]; then
+            SRC="$DIRS"
+          fi
+
+          cp -a "$SRC"/. .
+          rm -f "$ZIP"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Extract GXG source and workflow"
+            git push
+          else
+            echo "没有检测到需要提交的更改"
+          fi
