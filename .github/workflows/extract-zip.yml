@@ -1,6 +1,12 @@
 name: Extract ZIP to Main Directory
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "gxg-isp-auto-target-20261030.zip"
+      - ".github/workflows/extract-zip.yml"
   workflow_dispatch:
 
 permissions:
@@ -20,21 +26,30 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Validate source ZIP
+      - name: Check source ZIP
+        id: source
+        shell: bash
         run: |
           ZIP="gxg-isp-auto-target-20261030.zip"
-          test -f "$ZIP" || { echo "ERROR: $ZIP not found in repository root"; exit 1; }
+          if [ ! -f "$ZIP" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "Source ZIP is not present; nothing to extract."
+            exit 0
+          fi
           unzip -tq "$ZIP"
-          mkdir -p "$RUNNER_TEMP/gxg-source"
-          unzip -oq "$ZIP" -d "$RUNNER_TEMP/gxg-source"
+          echo "found=true" >> "$GITHUB_OUTPUT"
 
       - name: Extract source into repository root
+        if: steps.source.outputs.found == 'true'
+        shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/gxg-source"
           ZIP="gxg-isp-auto-target-20261030.zip"
+          ROOT="$RUNNER_TEMP/gxg-source"
+          mkdir -p "$ROOT"
+          unzip -oq "$ZIP" -d "$ROOT"
 
-          # Detect whether the archive has one wrapper directory or files at its root.
+          # Strip a single wrapper directory when the archive contains one.
           mapfile -t TOPS < <(find "$ROOT" -mindepth 1 -maxdepth 1 -print)
           if [ "${#TOPS[@]}" -eq 1 ] && [ -d "${TOPS[0]}" ]; then
             SRC="${TOPS[0]}"
@@ -42,14 +57,23 @@ jobs:
             SRC="$ROOT"
           fi
 
-          # Copy the complete archive contents, including .github/workflows/.
-          # Do not copy macOS metadata into the repository.
+          # Keep this automation workflow active even if the ZIP contains an older copy.
+          mkdir -p "$RUNNER_TEMP/workflow-backup"
+          cp .github/workflows/extract-zip.yml "$RUNNER_TEMP/workflow-backup/extract-zip.yml"
+
+          # Extract all project files, including other files under .github/workflows/.
           rsync -a --exclude='__MACOSX/' "$SRC"/ ./
 
-          # Remove the source archive only after extraction succeeds.
+          # Restore the current automation workflow after extracting the archive.
+          mkdir -p .github/workflows
+          cp "$RUNNER_TEMP/workflow-backup/extract-zip.yml" .github/workflows/extract-zip.yml
+
+          # Delete the ZIP only after extraction succeeds.
           rm -- "$ZIP"
 
-      - name: Commit and push changes
+      - name: Commit and push extracted files
+        if: steps.source.outputs.found == 'true'
+        shell: bash
         run: |
           set -euo pipefail
           git add -A
@@ -59,5 +83,5 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Extract gxg source ZIP into repository root"
+          git commit -m "Extract source ZIP into repository root"
           git push origin HEAD:main
