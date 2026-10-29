@@ -15,26 +15,8 @@ android {
         versionName = "1.0"
     }
 
-    signingConfigs {
-        create("stable") {
-            storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH")
-                ?: error("ANDROID_KEYSTORE_PATH is not configured"))
-            storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                ?: error("ANDROID_KEYSTORE_PASSWORD is not configured")
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                ?: error("ANDROID_KEY_ALIAS is not configured")
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-                ?: error("ANDROID_KEY_PASSWORD is not configured")
-        }
-    }
-
-    buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("stable")
-        }
-    }
-
-    // Keep Java and Kotlin bytecode targets aligned, as in the reference workflow.
+    // Debug builds use Android Gradle Plugin's default debug signing configuration.
+    // No custom keystore, passwords, aliases, or GitHub Secrets are required.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
