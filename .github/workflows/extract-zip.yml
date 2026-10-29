@@ -62,7 +62,7 @@ jobs:
           cp .github/workflows/extract-zip.yml "$RUNNER_TEMP/workflow-backup/extract-zip.yml"
 
           # Extract all project files, including other files under .github/workflows/.
-          rsync -a --exclude='__MACOSX/' "$SRC"/ ./
+          rsync -a --exclude='__MACOSX/' --exclude='.github/workflows/build-apk.yml' "$SRC"/ ./
 
           # Restore the current automation workflow after extracting the archive.
           mkdir -p .github/workflows
