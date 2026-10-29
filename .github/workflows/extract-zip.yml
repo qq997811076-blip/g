@@ -1,87 +1,79 @@
-name: Extract ZIP to Main Directory
+
+name: Build APK
 
 on:
   push:
     branches:
       - main
-    paths:
-      - "gxg-isp-auto-target-20261030.zip"
-      - ".github/workflows/extract-zip.yml"
+      - official-qualified-scroll-speed-20261030
+      - isp-auto-target-20261030
+      - add-official-independent-ui-20261029
+      - official-cf-ip-random-65534-20261029
+      - ui-two-mode-switch-20261029
+      - official-connectivity-groups-20261030
+      - official-qualified-scroll-speed-20261030
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: gxg-extract-zip
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  extract:
+  build:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ipspeed-apk-build
+      cancel-in-progress: false
     steps:
-      - name: Checkout main branch
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          ref: main
-          fetch-depth: 0
+          distribution: temurin
+          java-version: '17'
 
-      - name: Check source ZIP
-        id: source
-        shell: bash
-        run: |
-          ZIP="gxg-isp-auto-target-20261030.zip"
-          if [ ! -f "$ZIP" ]; then
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "Source ZIP is not present; nothing to extract."
-            exit 0
-          fi
-          unzip -tq "$ZIP"
-          echo "found=true" >> "$GITHUB_OUTPUT"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
 
-      - name: Extract source into repository root
-        if: steps.source.outputs.found == 'true'
+      - name: Compile Go source for Android ARM64 without modifying source
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="gxg-isp-auto-target-20261030.zip"
-          ROOT="$RUNNER_TEMP/gxg-source"
-          mkdir -p "$ROOT"
-          unzip -oq "$ZIP" -d "$ROOT"
+          test -s app/src/main/assets/myspeed.go
+          sha256sum app/src/main/assets/myspeed.go | tee /tmp/myspeed.sha256
+          export GOOS=android GOARCH=arm64 CGO_ENABLED=0
+          export GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+          go build -trimpath -o app/src/main/assets/sss app/src/main/assets/myspeed.go
+          chmod 755 app/src/main/assets/sss
+          sha256sum -c /tmp/myspeed.sha256
 
-          # Strip a single wrapper directory when the archive contains one.
-          mapfile -t TOPS < <(find "$ROOT" -mindepth 1 -maxdepth 1 -print)
-          if [ "${#TOPS[@]}" -eq 1 ] && [ -d "${TOPS[0]}" ]; then
-            SRC="${TOPS[0]}"
-          else
-            SRC="$ROOT"
-          fi
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-disabled: false
 
-          # Keep this automation workflow active even if the ZIP contains an older copy.
-          mkdir -p "$RUNNER_TEMP/workflow-backup"
-          cp .github/workflows/extract-zip.yml "$RUNNER_TEMP/workflow-backup/extract-zip.yml"
+      - name: Build APK (single task)
+        run: gradle --no-daemon --max-workers=1 assembleDebug
 
-          # Extract all project files, including other files under .github/workflows/.
-          rsync -a --exclude='__MACOSX/' --exclude='.github/workflows/build-apk.yml' "$SRC"/ ./
-
-          # Restore the current automation workflow after extracting the archive.
-          mkdir -p .github/workflows
-          cp "$RUNNER_TEMP/workflow-backup/extract-zip.yml" .github/workflows/extract-zip.yml
-
-          # Delete the ZIP only after extraction succeeds.
-          rm -- "$ZIP"
-
-      - name: Commit and push extracted files
-        if: steps.source.outputs.found == 'true'
+      - name: Rename APK with actual generation timestamp
         shell: bash
         run: |
           set -euo pipefail
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Extract source ZIP into repository root"
-          git push origin HEAD:main
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          STAMP="$(date +%Y%m%d-%H%M%S)"
+          mv "$APK" "app/build/outputs/apk/debug/$STAMP.apk"
+          echo "APK_PATH=app/build/outputs/apk/debug/$STAMP.apk" >> "$GITHUB_ENV"
+          sha256sum "app/build/outputs/apk/debug/$STAMP.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipspeed-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
