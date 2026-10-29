@@ -1,5 +1,5 @@
 
-name: Restore gxg source
+name: Extract ZIP to Main Directory
 
 on:
   workflow_dispatch:
@@ -8,35 +8,51 @@ permissions:
   contents: write
 
 concurrency:
-  group: gxg-source-restore
+  group: gxg-extract-zip
   cancel-in-progress: false
 
 jobs:
-  restore:
+  extract:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout selected branch
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: main
 
-      - name: Download baseline source
+      - name: Download source ZIP
         run: |
           curl -fL \
-            https://github.com/qq997811076-blip/gxg/archive/84f2a2b.zip \
+            https://github.com/qq997811076-blip/gxg/archive/84f2a2b133aa34fa5b7b60e6bb5419212f5b03df.zip \
             -o /tmp/gxg-source.zip
 
-      - name: Replace repository files
+      - name: Extract ZIP
         run: |
-          git rm -r --ignore-unmatch .
+          mkdir -p /tmp/gxg-source
           unzip -oq /tmp/gxg-source.zip -d /tmp/gxg-source
-          cp -a /tmp/gxg-source/gxg-84f2a2b/. .
+
+          SOURCE_DIR="/tmp/gxg-source/gxg-84f2a2b133aa34fa5b7b60e6bb5419212f5b03df"
+
+          if [ ! -d "$SOURCE_DIR" ]; then
+            echo "ERROR: Extracted source directory not found"
+            find /tmp/gxg-source -maxdepth 2 -type d
+            exit 1
+          fi
+
+          cp -a "$SOURCE_DIR"/. .
+
+      - name: Commit changes to main
+        run: |
           git add -A
-          git diff --cached --quiet && {
+
+          if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
-          }
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Restore gxg source from baseline 84f2a2b"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+          git commit -m "Extract gxg source into main directory"
+          git push origin HEAD:main
