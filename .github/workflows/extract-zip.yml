@@ -1,4 +1,3 @@
-
 name: Extract ZIP to Main Directory
 
 on:
@@ -14,45 +13,51 @@ concurrency:
 jobs:
   extract:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
-      - name: Download source ZIP
+      - name: Validate source ZIP
         run: |
-          curl -fL \
-            https://github.com/qq997811076-blip/gxg/archive/84f2a2b133aa34fa5b7b60e6bb5419212f5b03df.zip \
-            -o /tmp/gxg-source.zip
+          ZIP="gxg-isp-auto-target-20261030.zip"
+          test -f "$ZIP" || { echo "ERROR: $ZIP not found in repository root"; exit 1; }
+          unzip -tq "$ZIP"
+          mkdir -p "$RUNNER_TEMP/gxg-source"
+          unzip -oq "$ZIP" -d "$RUNNER_TEMP/gxg-source"
 
-      - name: Extract ZIP
+      - name: Extract source into repository root
         run: |
-          mkdir -p /tmp/gxg-source
-          unzip -oq /tmp/gxg-source.zip -d /tmp/gxg-source
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/gxg-source"
+          ZIP="gxg-isp-auto-target-20261030.zip"
 
-          SOURCE_DIR="/tmp/gxg-source/gxg-84f2a2b133aa34fa5b7b60e6bb5419212f5b03df"
-
-          if [ ! -d "$SOURCE_DIR" ]; then
-            echo "ERROR: Extracted source directory not found"
-            find /tmp/gxg-source -maxdepth 2 -type d
-            exit 1
+          # Detect whether the archive has one wrapper directory or files at its root.
+          mapfile -t TOPS < <(find "$ROOT" -mindepth 1 -maxdepth 1 -print)
+          if [ "${#TOPS[@]}" -eq 1 ] && [ -d "${TOPS[0]}" ]; then
+            SRC="${TOPS[0]}"
+          else
+            SRC="$ROOT"
           fi
 
-          cp -a "$SOURCE_DIR"/. .
+          # Copy the complete archive contents, including .github/workflows/.
+          # Do not copy macOS metadata into the repository.
+          rsync -a --exclude='__MACOSX/' "$SRC"/ ./
 
-      - name: Commit changes to main
+          # Remove the source archive only after extraction succeeds.
+          rm -- "$ZIP"
+
+      - name: Commit and push changes
         run: |
+          set -euo pipefail
           git add -A
-
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git commit -m "Extract gxg source into main directory"
+          git commit -m "Extract gxg source ZIP into repository root"
           git push origin HEAD:main
