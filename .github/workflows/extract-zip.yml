@@ -1,52 +1,42 @@
 
-name: Extract ZIP
+name: Restore gxg source
 
 on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: gxg-source-restore
+  cancel-in-progress: false
 
 jobs:
-  extract:
+  restore:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
+      - name: Checkout selected branch
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
-          persist-credentials: true
+          ref: ${{ github.ref_name }}
 
-      - name: Extract ZIP to repository root
-        shell: bash
+      - name: Download baseline source
         run: |
-          set -euo pipefail
+          curl -fL \
+            https://github.com/qq997811076-blip/gxg/archive/84f2a2b.zip \
+            -o /tmp/gxg-source.zip
 
-          ZIP="gxg-fe166845a561b99e768215f140621981828cbb56.zip"
-          test -s "$ZIP"
-
-          mkdir -p /tmp/gxg-extract
-          unzip -oq "$ZIP" -d /tmp/gxg-extract
-
-          SRC="/tmp/gxg-extract"
-          mapfile -t DIRS < <(find "$SRC" -mindepth 1 -maxdepth 1 -type d)
-
-          if [ "${#DIRS[@]}" -eq 1 ]; then
-            SRC="${DIRS[0]}"
-          fi
-
-          cp -a "$SRC"/. .
-          rm -f "$ZIP"
-
+      - name: Replace repository files
+        run: |
+          git rm -r --ignore-unmatch .
+          unzip -oq /tmp/gxg-source.zip -d /tmp/gxg-source
+          cp -a /tmp/gxg-source/gxg-84f2a2b/. .
+          git add -A
+          git diff --cached --quiet && {
+            echo "No changes to commit."
+            exit 0
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add -A
-
-          if ! git diff --cached --quiet; then
-            git commit -m "Extract GXG source and workflow"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          else
-            echo "没有检测到需要提交的更改"
-          fi
+          git commit -m "Restore gxg source from baseline 84f2a2b"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
