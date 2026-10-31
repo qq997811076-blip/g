@@ -1,5 +1,6 @@
 
 name: Build APK
+run-name: g-official-ipv4-retry-${{ github.run_number }}
 
 on:
   push:

@@ -1670,9 +1670,7 @@ open class MainActivity : Activity() {
         val deadline = System.nanoTime() + 5_000_000_000L
         var connection: HttpURLConnection? = null
         try {
-            val conn = URL(cloudflareIPv4RangesUrl).openConnection() as HttpURLConnection
-            connection = conn
-            conn.apply {
+            connection = (URL(cloudflareIPv4RangesUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5_000
                 readTimeout = 5_000
                 instanceFollowRedirects = true
@@ -1682,15 +1680,15 @@ open class MainActivity : Activity() {
                 val remainingNanos = deadline - System.nanoTime()
                 if (remainingNanos <= 0L) throw java.net.SocketTimeoutException("单次请求总超时 5 秒")
                 val remainingMillis = ((remainingNanos + 999_999L) / 1_000_000L).toInt().coerceAtLeast(1)
-                conn.connectTimeout = remainingMillis
-                conn.readTimeout = remainingMillis
+                connection?.connectTimeout = remainingMillis
+                connection?.readTimeout = remainingMillis
             }
             updateRemainingTimeout()
-            val code = conn.responseCode
+            val code = connection.responseCode
             if (code !in 200..299) throw IOException("HTTP 状态码：$code")
             val output = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
-            conn.inputStream.use { input ->
+            connection.inputStream.use { input ->
                 while (true) {
                     updateRemainingTimeout()
                     val count = input.read(buffer)
