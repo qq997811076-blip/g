@@ -148,20 +148,8 @@ open class MainActivity : Activity() {
     private lateinit var officialAutoSpeedCheck: CheckBox
     private lateinit var officialDataCenterInput: EditText
 
-    private val legacyBuiltInSourceURLs = setOf(
-        "https://zip.cm.edu.kg/all.txt",
-        "https://countrymerge.pages.dev/all.txt"
-    )
-
-    private fun savedNetworkURLs(): String {
-        val saved = prefs.getString("urls", "").orEmpty()
-        val filtered = saved.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it !in legacyBuiltInSourceURLs }
-            .joinToString("\n")
-        if (filtered != saved) prefs.edit().putString("urls", filtered).commit()
-        return filtered
-    }
+    private fun savedNetworkURLs(): String =
+        prefs.getString("urls", "").orEmpty()
 
     private val targetPresetLabels = arrayOf("自动选择", "Cloudflare", "CM提供", "移动专属", "手动输入")
     private val autoTargetLabel = "根据运营商选择"
@@ -1701,25 +1689,60 @@ open class MainActivity : Activity() {
     }
 
     private fun refreshCloudflareIPv4Ranges(file: File): Int {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(cloudflareIPv4RangesUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "IP-Speed-Android")
+        var lastError: Exception? = null
+        repeat(3) {
+            var connection: HttpURLConnection? = null
+            val deadlineNanos = System.nanoTime() + 10_000_000_000L
+            try {
+                connection = (URL(cloudflareIPv4RangesUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10_000
+                    readTimeout = 10_000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "IP-Speed-Android")
+                }
+                connection.connect()
+                var remainingMillis = ((deadlineNanos - System.nanoTime()) / 1_000_000L)
+                    .coerceAtLeast(1L).coerceAtMost(10_000L).toInt()
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw java.net.SocketTimeoutException("Cloudflare 请求总超时（10 秒）")
+                }
+                connection.readTimeout = remainingMillis
+                val code = connection.responseCode
+                if (code !in 200..299) throw IOException("HTTP 状态码：$code")
+                remainingMillis = ((deadlineNanos - System.nanoTime()) / 1_000_000L)
+                    .coerceAtLeast(1L).coerceAtMost(10_000L).toInt()
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw java.net.SocketTimeoutException("Cloudflare 请求总超时（10 秒）")
+                }
+                connection.readTimeout = remainingMillis
+                val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    val output = StringBuilder()
+                    val buffer = CharArray(4096)
+                    while (true) {
+                        if (System.nanoTime() >= deadlineNanos) {
+                            throw java.net.SocketTimeoutException("Cloudflare 请求总超时（10 秒）")
+                        }
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        output.append(buffer, 0, count)
+                    }
+                    output.toString()
+                }
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw java.net.SocketTimeoutException("Cloudflare 请求总超时（10 秒）")
+                }
+                val ranges = body.lineSequence().mapNotNull { parseCloudflareCidr(it) }
+                    .distinctBy { it.cidr }.toList()
+                if (ranges.isEmpty()) throw IOException("Cloudflare 返回内容中没有有效 IPv4 网段")
+                file.writeText(ranges.joinToString("\n") { it.cidr } + "\n", Charsets.UTF_8)
+                return ranges.size
+            } catch (e: Exception) {
+                lastError = e
+            } finally {
+                connection?.disconnect()
             }
-            val code = connection.responseCode
-            if (code !in 200..299) throw IOException("HTTP 状态码：$code")
-            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val ranges = body.lineSequence().mapNotNull { parseCloudflareCidr(it) }
-                .distinctBy { it.cidr }.toList()
-            if (ranges.isEmpty()) throw IOException("Cloudflare 返回内容中没有有效 IPv4 网段")
-            file.writeText(ranges.joinToString("\n") { it.cidr } + "\n", Charsets.UTF_8)
-            return ranges.size
-        } finally {
-            connection?.disconnect()
         }
+        throw lastError ?: IOException("Cloudflare IPv4 网段下载失败")
     }
 
     private fun loadCloudflareIPv4Ranges(file: File): List<IPv4CidrRange> {
