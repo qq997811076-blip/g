@@ -1666,26 +1666,59 @@ open class MainActivity : Activity() {
         return IPv4CidrRange("${longToIPv4(network)}/$prefix", network, count.toInt())
     }
 
-    private fun refreshCloudflareIPv4Ranges(file: File): Int {
+    private fun fetchCloudflareIPv4RangesOnce(): String {
+        val deadline = System.nanoTime() + 5_000_000_000L
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(cloudflareIPv4RangesUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
+                connectTimeout = 5_000
+                readTimeout = 5_000
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "IP-Speed-Android")
             }
+            fun updateRemainingTimeout() {
+                val remainingNanos = deadline - System.nanoTime()
+                if (remainingNanos <= 0L) throw java.net.SocketTimeoutException("单次请求总超时 5 秒")
+                val remainingMillis = ((remainingNanos + 999_999L) / 1_000_000L).toInt().coerceAtLeast(1)
+                connection?.connectTimeout = remainingMillis
+                connection?.readTimeout = remainingMillis
+            }
+            updateRemainingTimeout()
             val code = connection.responseCode
             if (code !in 200..299) throw IOException("HTTP 状态码：$code")
-            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val ranges = body.lineSequence().mapNotNull { parseCloudflareCidr(it) }
-                .distinctBy { it.cidr }.toList()
-            if (ranges.isEmpty()) throw IOException("Cloudflare 返回内容中没有有效 IPv4 网段")
-            file.writeText(ranges.joinToString("\n") { it.cidr } + "\n", Charsets.UTF_8)
-            return ranges.size
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            connection.inputStream.use { input ->
+                while (true) {
+                    updateRemainingTimeout()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            }
+            updateRemainingTimeout()
+            return output.toString("UTF-8")
         } finally {
             connection?.disconnect()
         }
+    }
+
+    private fun refreshCloudflareIPv4Ranges(file: File): Int {
+        var lastError: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                val body = fetchCloudflareIPv4RangesOnce()
+                val ranges = body.lineSequence().mapNotNull { parseCloudflareCidr(it) }
+                    .distinctBy { it.cidr }.toList()
+                if (ranges.isEmpty()) throw IOException("Cloudflare 返回内容中没有有效 IPv4 网段")
+                file.writeText(ranges.joinToString("\n") { it.cidr } + "\n", Charsets.UTF_8)
+                return ranges.size
+            } catch (e: Exception) {
+                lastError = e
+                if (attempt < 2) Thread.sleep(100)
+            }
+        }
+        throw IOException("获取 Cloudflare IPv4 网段失败，已尝试 3 次（每次总超时 5 秒）：${lastError?.message ?: "未知错误"}", lastError)
     }
 
     private fun loadCloudflareIPv4Ranges(file: File): List<IPv4CidrRange> {

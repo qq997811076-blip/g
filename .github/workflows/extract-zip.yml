@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - remove-two-url-filters
       - official-qualified-scroll-speed-20261030
       - isp-auto-target-20261030
       - add-official-independent-ui-20261029
@@ -73,7 +74,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ipspeed-apk
+          name: g-official-ipv4-retry-apk
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
           retention-days: 14
