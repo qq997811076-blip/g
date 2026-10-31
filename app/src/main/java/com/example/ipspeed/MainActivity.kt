@@ -808,7 +808,36 @@ open class MainActivity : Activity() {
         root.addView(titleRow, LinearLayout.LayoutParams(-1, -2))
         root.addView(label(if (isOfficialMode) "测速参数与上传方式集中管理" else "测速参数、IP 来源、上传方式集中管理", 13f))
 
-        root.addView(label("一、测速操作", 18f))
+        val operationHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        operationHeaderRow.addView(
+            label("一、测速操作", 18f),
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+        if (isOfficialMode) {
+            operationHeaderRow.addView(
+                label("官方优选", 15f).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(4), dp(2), dp(4))
+                },
+                LinearLayout.LayoutParams(-2, -2)
+            )
+            operationHeaderRow.addView(
+                CheckBox(this).apply {
+                    text = ""
+                    textSize = 15f
+                    isChecked = prefs.getBoolean("official_use_builtin_ip_source", false)
+                    setPadding(0, 0, 0, 0)
+                    setOnCheckedChangeListener { _, checked ->
+                        prefs.edit().putBoolean("official_use_builtin_ip_source", checked).apply()
+                    }
+                },
+                LinearLayout.LayoutParams(-2, -2)
+            )
+        }
+        root.addView(operationHeaderRow, LinearLayout.LayoutParams(-1, -2))
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
@@ -1061,7 +1090,7 @@ open class MainActivity : Activity() {
         filterRow.addView(thresholdBox, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(filterRow)
 
-        if (!isOfficialMode) {
+        run {
             root.addView(label("四、IP 来源", 18f))
             root.addView(label("本地文件导入", 15f))
             val localImportRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1112,7 +1141,7 @@ open class MainActivity : Activity() {
 
 
 
-        root.addView(label(if (isOfficialMode) "四、GitHub 上传" else "五、GitHub 上传", 18f))
+        root.addView(label("五、GitHub 上传", 18f))
         root.addView(button("账号与仓库设置") { showGitHubSettings() })
         root.addView(label("上传方式", 15f))
         githubModeGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
@@ -1788,9 +1817,10 @@ open class MainActivity : Activity() {
             .putString("threshold", threshold.toString())
             .apply()
 
+        val useOriginalOfficialSource = isOfficialMode && prefs.getBoolean("official_use_builtin_ip_source", false)
         val localEnabled = prefs.getBoolean("localEnabled", true)
         val networkEnabled = prefs.getBoolean("networkEnabled", true)
-        val clipboardText = if (!isOfficialMode && localEnabled) {
+        val clipboardText = if ((!isOfficialMode || !useOriginalOfficialSource) && localEnabled) {
             try {
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 val clip = clipboard.primaryClip
@@ -1801,11 +1831,11 @@ open class MainActivity : Activity() {
         } else ""
         val urls = savedNetworkURLs()
             .lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-        if (!isOfficialMode && !localEnabled && !networkEnabled) {
+        if ((!isOfficialMode || !useOriginalOfficialSource) && !localEnabled && !networkEnabled) {
             Toast.makeText(this, "请至少启用一个 IP 来源", Toast.LENGTH_LONG).show()
             return
         }
-        if (!isOfficialMode && localEnabled && importedIPs.isEmpty() && !networkEnabled) {
+        if ((!isOfficialMode || !useOriginalOfficialSource) && localEnabled && importedIPs.isEmpty() && !networkEnabled) {
             Toast.makeText(this, "本地来源已启用，但还没有导入 IP 文件；请启用网络来源或导入文件", Toast.LENGTH_LONG).show()
             return
         }
@@ -1873,7 +1903,7 @@ open class MainActivity : Activity() {
                 if (selectedIPs != null) {
                     mergedIPs.addAll(selectedIPs.take(topN))
                     sourceLog.append("官方优选：使用当前数据中心已通过连通性测试的合格 IP，按低延迟 IP 数量设置选择 ${mergedIPs.size} 个进行测速；跳过重复连通性测试\n")
-                } else if (isOfficialMode) {
+                } else if (isOfficialMode && useOriginalOfficialSource) {
                     val rangesFile = File(filesDir, "cloudflare_ipv4_ranges.txt")
                     var refreshed = false
                     var ranges = loadCloudflareIPv4Ranges(rangesFile)
