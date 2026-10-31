@@ -2125,11 +2125,7 @@ open class MainActivity : Activity() {
                     val speed = baseLine.substringAfter("#").removeSuffix("M")
                     val colo = fields.getOrNull(1).orEmpty().ifBlank { "UNK" }
                     val sourceLocation = fields.getOrNull(3).orEmpty().ifBlank { "XX" }
-                    if (isOfficialMode) {
-                        "$ip:443#官方优选-$colo-${speed}MB/s"
-                    } else {
-                        "$ip:443#$colo-$sourceLocation-${speed}MB/s"
-                    }
+                    "$ip:443#$colo-$sourceLocation-${speed}MB/s"
                 }
                 val dcStats = parsedRaw.map { raw ->
                     val fields = raw.split("|")
@@ -2315,9 +2311,7 @@ open class MainActivity : Activity() {
     }
 
     private fun resultSpeed(line: String): Double {
-        val officialFormatted = Regex("#官方优选-[A-Z0-9]+-([0-9]+(?:\\.[0-9]+)?)MB/s$").find(line)
-        if (officialFormatted != null) return officialFormatted.groupValues[1].toDoubleOrNull() ?: 0.0
-        val formatted = Regex("#[A-Z]{3}-[A-Z]{2}-([0-9]+(?:\\.[0-9]+)?)MB/s$").find(line)
+        val formatted = Regex("#.*-([0-9]+(?:\\.[0-9]+)?)MB/s$").find(line)
         if (formatted != null) return formatted.groupValues[1].toDoubleOrNull() ?: 0.0
         return line.substringAfter("#").substringBefore("M").toDoubleOrNull() ?: 0.0
     }
