@@ -148,16 +148,11 @@ open class MainActivity : Activity() {
     private lateinit var officialAutoSpeedCheck: CheckBox
     private lateinit var officialDataCenterInput: EditText
 
-    private val legacyBuiltInSourceURLs = setOf(
-        "https://zip.cm.edu.kg/all.txt",
-        "https://countrymerge.pages.dev/all.txt"
-    )
-
     private fun savedNetworkURLs(): String {
         val saved = prefs.getString("urls", "").orEmpty()
         val filtered = saved.lineSequence()
             .map { it.trim() }
-            .filter { it.isNotEmpty() && it !in legacyBuiltInSourceURLs }
+            .filter { it.isNotEmpty() }
             .joinToString("\n")
         if (filtered != saved) prefs.edit().putString("urls", filtered).commit()
         return filtered
