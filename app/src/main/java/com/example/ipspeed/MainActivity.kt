@@ -121,7 +121,7 @@ open class MainActivity : Activity() {
     )
 
     private val cloudflareIPv4RangesUrl = "https://www.baipiao.eu.org/cloudflare/ips-v4"
-    private val officialRandomIPCount = 6_534
+    private val maxIPv4SubnetExpansion = 1 shl 16
 
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
@@ -1727,42 +1727,41 @@ open class MainActivity : Activity() {
             .distinctBy { it.cidr }
     }
 
-    private fun sampleCloudflareIPv4s(file: File, requestedCount: Int): List<String> {
+    private fun sampleCloudflareIPv4s(file: File): List<String> {
         val ranges = loadCloudflareIPv4Ranges(file)
         if (ranges.isEmpty()) throw IOException("没有可用的 Cloudflare IPv4 网段缓存")
-        val total = ranges.sumOf { it.count.toLong() }
-        if (total < requestedCount.toLong()) {
-            throw IOException("Cloudflare IPv4 网段总地址数不足 $requestedCount")
-        }
-        if (total > Int.MAX_VALUE.toLong()) {
-            throw IOException("Cloudflare IPv4 网段总地址数超出当前随机抽样范围")
+
+        // 按参考版逻辑展开：小于 /24 的网段拆成多个 /24；
+        // /24 或更具体的网段保持原有范围，每个子网只随机抽取一个 IPv4。
+        val subnetRanges = linkedMapOf<String, IPv4CidrRange>()
+        for (range in ranges) {
+            val prefix = range.cidr.substringAfterLast('/').toIntOrNull()
+                ?: continue
+            if (prefix >= 24) {
+                subnetRanges.putIfAbsent(range.cidr, range)
+                continue
+            }
+
+            val subnetCount = (1L shl (24 - prefix))
+                .coerceAtMost(maxIPv4SubnetExpansion.toLong()).toInt()
+            for (index in 0 until subnetCount) {
+                val network = range.network + index.toLong() * 256L
+                val cidr = "${longToIPv4(network)}/24"
+                subnetRanges.putIfAbsent(cidr, IPv4CidrRange(cidr, network, 256))
+            }
         }
 
-        // 对所有网段中的地址位置进行无放回均匀抽样，抽样顺序也保持随机。
+        if (subnetRanges.isEmpty()) throw IOException("Cloudflare IPv4 网段无法划分出可用子网")
+
         val random = SecureRandom()
-        val seenIndexes = HashSet<Int>(requestedCount * 2)
-        val indexes = ArrayList<Int>(requestedCount)
-        while (indexes.size < requestedCount) {
-            val index = random.nextInt(total.toInt())
-            if (seenIndexes.add(index)) indexes.add(index)
+        val selected = ArrayList<String>(subnetRanges.size)
+        val seenIPs = HashSet<String>(subnetRanges.size * 2)
+        for (subnet in subnetRanges.values) {
+            val ip = longToIPv4(subnet.network + random.nextInt(subnet.count).toLong())
+            if (seenIPs.add(ip)) selected.add(ip)
         }
-
-        return indexes.map { index ->
-            var remaining = index.toLong()
-            var selected: String? = null
-            for (range in ranges) {
-                if (remaining < range.count.toLong()) {
-                    selected = longToIPv4(range.network + remaining)
-                    break
-                }
-                remaining -= range.count.toLong()
-            }
-            selected ?: throw IOException("Cloudflare IPv4 随机抽样映射失败")
-        }.distinct().also {
-            if (it.size != requestedCount) {
-                throw IOException("随机抽样未能得到 $requestedCount 个不重复 IPv4")
-            }
-        }
+        if (selected.isEmpty()) throw IOException("没有抽取到有效 IPv4")
+        return selected
     }
 
     private fun isTestCancelled(generation: Long): Boolean =
@@ -1921,10 +1920,10 @@ open class MainActivity : Activity() {
                     if (ranges.isEmpty()) {
                         throw IOException("Cloudflare 官方网段下载失败，且没有可用缓存")
                     }
-                    val selectedIPs = sampleCloudflareIPv4s(rangesFile, officialRandomIPCount)
+                    val selectedIPs = sampleCloudflareIPv4s(rangesFile)
                     mergedIPs.addAll(selectedIPs)
                     sourceLog.append(
-                        "官方优选：${if (refreshed) "使用刚下载的网段" else "使用已保存网段"}，完全随机抽取 ${mergedIPs.size} 个不重复 IPv4\n"
+                        "官方优选：${if (refreshed) "使用刚下载的网段" else "使用已保存网段"}，按 /24 子网随机抽取，每个子网 1 个 IPv4，共 ${mergedIPs.size} 个\n"
                     )
                 } else {
                     if (localEnabled) {
