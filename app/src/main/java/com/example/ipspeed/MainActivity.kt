@@ -120,7 +120,7 @@ open class MainActivity : Activity() {
         val count: Int
     )
 
-    private val cloudflareIPv4RangesUrl = "https://www.cloudflare.com/ips-v4"
+    private val cloudflareIPv4RangesUrl = "https://www.baipiao.eu.org/cloudflare/ips-v4"
     private val officialRandomIPCount = 6_534
 
     private lateinit var root: LinearLayout
