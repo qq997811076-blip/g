@@ -144,7 +144,10 @@ open class MainActivity : Activity() {
     private lateinit var urlsInput: EditText
     private lateinit var localCheck: CheckBox
     private lateinit var networkCheck: CheckBox
+    private lateinit var clipboardCheck: CheckBox
     private lateinit var sourceStats: TextView
+    private lateinit var clipboardStats: TextView
+    private var clipboardImportedIPs: List<String> = emptyList()
     private lateinit var officialAutoSpeedCheck: CheckBox
     private lateinit var officialDataCenterInput: EditText
 
@@ -211,10 +214,13 @@ open class MainActivity : Activity() {
             val loadedCountries = readStringMap(prefs.getString("ip_country_codes", "{}"))
             runOnUiThread {
                 importedIPs = loadedIPs
+                clipboardImportedIPs = prefs.getString("clipboard_imported_ips", "").orEmpty()
+                    .lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().toList()
                 geoRowsByIP = loadedRows
                 countryCodesByIP = loadedCountries
                 savedDataLoaded = true
                 if (::sourceStats.isInitialized) sourceStats.text = "已保存唯一 IPv4：${importedIPs.size}"
+                if (::clipboardStats.isInitialized) clipboardStats.text = "已保存唯一 IPv4：${clipboardImportedIPs.size}"
                 status.text = "状态：待开始"
             }
         }
@@ -772,6 +778,7 @@ open class MainActivity : Activity() {
                 .putString("urls", urlsInput.text.toString())
                 .putBoolean("localEnabled", localCheck.isChecked)
                 .putBoolean("networkEnabled", networkCheck.isChecked)
+                .putBoolean("clipboardEnabled", if (::clipboardCheck.isInitialized) clipboardCheck.isChecked else prefs.getBoolean("clipboardEnabled", false))
                 .commit()
             if (!ok) Toast.makeText(this, "IP 来源设置保存失败，请检查设备存储空间", Toast.LENGTH_LONG).show()
             ok
@@ -1062,44 +1069,63 @@ open class MainActivity : Activity() {
         root.addView(filterRow)
 
         if (!isOfficialMode) {
-            root.addView(label("四、IP 来源", 18f))
-            root.addView(label("本地文件导入", 15f))
-            val localImportRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            localImportRow.addView(button("选择 TXT / CSV 文件") {
+            root.addView(label("四、IP 来源（仅可选择一个来源）", 18f))
+            val localHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            localHeader.addView(label("IP 文件", 15f), LinearLayout.LayoutParams(0, -2, 1f))
+            localCheck = CheckBox(this).apply {
+                text = "启用"
+                isChecked = prefs.getBoolean("localEnabled", false)
+            }
+            localHeader.addView(localCheck)
+            root.addView(localHeader)
+            root.addView(button("选择 TXT / CSV 文件") {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
                 }
                 startActivityForResult(intent, 701)
-            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
-            localImportRow.addView(button("剪切板导入IP") {
-                importIPsFromClipboard()
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            root.addView(localImportRow)
+            })
             sourceStats = label("已保存唯一 IPv4：${importedIPs.size}", 14f)
             root.addView(sourceStats)
-            root.addView(button("清除已导入的本地 IP") {
+            root.addView(button("清除已导入的文件 IP") {
                 importedIPs = emptyList()
                 geoRowsByIP = emptyMap()
                 countryCodesByIP = emptyMap()
                 prefs.edit().putString("imported_ips", "").commit()
                 saveGeoMetadata()
                 sourceStats.text = "已保存唯一 IPv4：0"
-                Toast.makeText(this, "已清除本地 IP", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "已清除文件 IP", Toast.LENGTH_SHORT).show()
             })
-            localCheck = CheckBox(this).apply {
-                text = "启用本地文件 IP"
-                isChecked = prefs.getBoolean("localEnabled", false)
-            }
+
+            val networkHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            networkHeader.addView(label("网络 URL（每行一个，编辑后自动保存）", 14f), LinearLayout.LayoutParams(0, -2, 1f))
             networkCheck = CheckBox(this).apply {
-                text = "启用网络 URL 来源"
+                text = "启用"
                 isChecked = prefs.getBoolean("networkEnabled", true)
             }
-            root.addView(localCheck)
-            root.addView(networkCheck)
-            root.addView(label("网络 URL（每行一个，编辑后自动保存）", 14f))
+            networkHeader.addView(networkCheck)
+            root.addView(networkHeader)
             urlsInput = edit("每行一个 HTTPS URL", savedNetworkURLs(), false)
             root.addView(urlsInput, LinearLayout.LayoutParams(-1, dp(140)))
+
+            val clipboardHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            clipboardHeader.addView(label("剪切板导入 IP", 15f), LinearLayout.LayoutParams(0, -2, 1f))
+            clipboardCheck = CheckBox(this).apply {
+                text = "启用"
+                isChecked = prefs.getBoolean("clipboardEnabled", false)
+            }
+            clipboardHeader.addView(clipboardCheck)
+            root.addView(clipboardHeader)
+            root.addView(button("从剪切板导入 IP") { importIPsFromClipboard() })
+            clipboardStats = label("已保存唯一 IPv4：${clipboardImportedIPs.size}", 14f)
+            root.addView(clipboardStats)
+            root.addView(button("清除剪切板导入的 IP") {
+                clipboardImportedIPs = emptyList()
+                prefs.edit().putString("clipboard_imported_ips", "").commit()
+                clipboardStats.text = "已保存唯一 IPv4：0"
+                Toast.makeText(this, "已清除剪切板导入 IP", Toast.LENGTH_SHORT).show()
+            })
+
             urlsInput.addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { saveSourceSettings() }
@@ -1107,6 +1133,7 @@ open class MainActivity : Activity() {
             })
             localCheck.setOnCheckedChangeListener { _, _ -> saveSourceSettings() }
             networkCheck.setOnCheckedChangeListener { _, _ -> saveSourceSettings() }
+            clipboardCheck.setOnCheckedChangeListener { _, _ -> saveSourceSettings() }
         }
 
 
@@ -1302,37 +1329,22 @@ open class MainActivity : Activity() {
         executor.execute {
             try {
                 val parsed = parseImported(text, false)
-                val previousIPs = importedIPs
-                val previousIPSet = previousIPs.toHashSet()
-                val overlaps = parsed.first.count { it in previousIPSet }
+                val previousIPs = clipboardImportedIPs
+                val previousSet = previousIPs.toHashSet()
+                val overlaps = parsed.first.count { it in previousSet }
                 val duplicateCount = parsed.second + overlaps
-                val mergedIPs = linkedSetOf<String>().apply {
+                val merged = linkedSetOf<String>().apply {
                     addAll(previousIPs)
                     addAll(parsed.first)
-                }
-                val finalIPs = mergedIPs.toList()
-                val finalRows = geoRowsByIP.filterKeys { it in mergedIPs }
-                val finalCountries = countryCodesByIP.filterKeys { it in mergedIPs }
-                prefs.edit()
-                    .putString("imported_ips", finalIPs.joinToString("\n"))
-                    .putBoolean("localEnabled", finalIPs.isNotEmpty())
-                    .putString("ip_geo_rows", org.json.JSONObject().apply {
-                        finalRows.forEach { (ip, row) -> put(ip, row) }
-                    }.toString())
-                    .putString("ip_country_codes", org.json.JSONObject().apply {
-                        finalCountries.forEach { (ip, code) -> put(ip, code) }
-                    }.toString())
-                    .apply()
+                }.toList()
+                prefs.edit().putString("clipboard_imported_ips", merged.joinToString("\n")).apply()
                 runOnUiThread {
-                    importedIPs = finalIPs
-                    geoRowsByIP = finalRows
-                    countryCodesByIP = finalCountries
-                    savedDataLoaded = true
-                    if (::sourceStats.isInitialized) {
-                        sourceStats.text = "剪切板重复：${duplicateCount}；本次新增：${finalIPs.size - previousIPs.size}；累计保存唯一 IPv4：${finalIPs.size}"
+                    clipboardImportedIPs = merged
+                    if (::clipboardStats.isInitialized) {
+                        clipboardStats.text = "剪切板重复：$duplicateCount；本次新增：${merged.size - previousIPs.size}；累计保存唯一 IPv4：${merged.size}"
                     }
-                    if (::localCheck.isInitialized) localCheck.isChecked = finalIPs.isNotEmpty()
-                    status.text = "状态：剪切板导入完成"
+                    status.text = "状态：剪切板 IP 导入完成"
+                    Toast.makeText(this, "剪切板导入完成：新增 ${merged.size - previousIPs.size} 个，累计 ${merged.size} 个唯一 IPv4", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -1788,26 +1800,38 @@ open class MainActivity : Activity() {
             .putString("threshold", threshold.toString())
             .apply()
 
-        val localEnabled = prefs.getBoolean("localEnabled", true)
-        val networkEnabled = prefs.getBoolean("networkEnabled", true)
-        val clipboardText = if (!isOfficialMode && localEnabled) {
-            try {
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val clip = clipboard.primaryClip
-                if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this)?.toString().orEmpty() else ""
-            } catch (_: Exception) {
-                ""
-            }
-        } else ""
+        val localEnabled = prefs.getBoolean("localEnabled", false)
+        val networkEnabled = prefs.getBoolean("networkEnabled", false)
+        val clipboardEnabled = prefs.getBoolean("clipboardEnabled", false)
         val urls = savedNetworkURLs()
             .lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
-        if (!isOfficialMode && !localEnabled && !networkEnabled) {
-            Toast.makeText(this, "请至少启用一个 IP 来源", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (!isOfficialMode && localEnabled && importedIPs.isEmpty() && !networkEnabled) {
-            Toast.makeText(this, "本地来源已启用，但还没有导入 IP 文件；请启用网络来源或导入文件", Toast.LENGTH_LONG).show()
-            return
+        if (!isOfficialMode) {
+            val selectedSourceCount = listOf(localEnabled, networkEnabled, clipboardEnabled).count { it }
+            if (selectedSourceCount != 1) {
+                val message = if (selectedSourceCount == 0) {
+                    "请只选择一个 IP 来源：IP 文件、网络 URL 或剪切板导入"
+                } else {
+                    "IP 来源冲突：IP 文件、网络 URL、剪切板导入只能勾选一个"
+                }
+                status.text = "状态：IP 来源设置错误"
+                resultsView.text = message
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                return
+            }
+            when {
+                localEnabled && importedIPs.isEmpty() -> {
+                    Toast.makeText(this, "IP 文件来源已启用，但尚未导入 IP 文件", Toast.LENGTH_LONG).show()
+                    return
+                }
+                networkEnabled && urls.isEmpty() -> {
+                    Toast.makeText(this, "网络 URL 来源已启用，但 URL 为空", Toast.LENGTH_LONG).show()
+                    return
+                }
+                clipboardEnabled && clipboardImportedIPs.isEmpty() -> {
+                    Toast.makeText(this, "剪切板来源已启用，但尚未导入 IP", Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
         }
 
         val workingDir = if (isOfficialMode) File(filesDir, "official_work").apply { mkdirs() } else filesDir
@@ -1899,20 +1923,22 @@ open class MainActivity : Activity() {
                         "官方优选：${if (refreshed) "使用刚下载的网段" else "使用已保存网段"}，完全随机抽取 ${mergedIPs.size} 个不重复 IPv4\n"
                     )
                 } else {
-                    if (localEnabled) {
-                        val clipboardParsed = if (clipboardText.isNotBlank()) parseImported(clipboardText, false).first else emptyList()
-                        val localUnique = linkedSetOf<String>().apply {
-                            addAll(parseImported(importedIPs.joinToString("\n"), false).first)
-                            addAll(clipboardParsed)
-                        }.toList()
-                        mergedIPs.addAll(localUnique)
-                        for (ip in localUnique) {
-                            savedGeoRows[ip]?.let { runGeoRows[ip] = it }
-                            savedCountryCodes[ip]?.let { runCountryCodes[ip] = it }
+                    when {
+                        localEnabled -> {
+                            val localUnique = parseImported(importedIPs.joinToString("\n"), false).first
+                            mergedIPs.addAll(localUnique)
+                            for (ip in localUnique) {
+                                savedGeoRows[ip]?.let { runGeoRows[ip] = it }
+                                savedCountryCodes[ip]?.let { runCountryCodes[ip] = it }
+                            }
+                            sourceLog.append("IP 文件来源：加入 ${localUnique.size} 个唯一 IPv4\n")
                         }
-                        sourceLog.append("本地来源：原保存 ${importedIPs.size} 条；重新去重后加入 ${localUnique.size} 个唯一 IPv4\n")
-                    } else {
-                        sourceLog.append("本地来源：未启用\n")
+                        clipboardEnabled -> {
+                            val clipboardUnique = parseImported(clipboardImportedIPs.joinToString("\n"), false).first
+                            mergedIPs.addAll(clipboardUnique)
+                            sourceLog.append("剪切板来源：读取已保存数据，加入 ${clipboardUnique.size} 个唯一 IPv4\n")
+                        }
+                        networkEnabled -> sourceLog.append("网络 URL 来源：已选择，开始读取 URL 列表\n")
                     }
 
                     if (networkEnabled) {
@@ -1949,8 +1975,6 @@ open class MainActivity : Activity() {
                                 if (activeSourceConnection === connection) activeSourceConnection = null
                             }
                         }
-                    } else {
-                        sourceLog.append("网络来源：未启用\n")
                     }
 
 
